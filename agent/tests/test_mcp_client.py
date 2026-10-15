@@ -135,3 +135,92 @@ def test_invoke_get_employee_by_id_success(mock_post):
     payload = call_args[1]["json"]
     assert payload["params"]["name"] == "get_employee_by_id"
     assert payload["params"]["arguments"] == {"id": "E-1"}
+
+
+@patch('agent.src.mcp_client.requests.post')
+def test_invoke_tool_network_error_returns_none(mock_post):
+    """Test network error returns None"""
+    import requests
+    mock_post.side_effect = requests.exceptions.ConnectionError("Network error")
+
+    client = MCPClient(server_url="http://test-server")
+
+    result = client.invoke_list_sales_order()
+
+    assert result is None
+
+
+@patch('agent.src.mcp_client.requests.post')
+def test_invoke_tool_http_error_returns_none(mock_post):
+    """Test HTTP 4xx/5xx error returns None"""
+    mock_response = Mock()
+    mock_response.status_code = 500
+    mock_post.return_value = mock_response
+
+    client = MCPClient(server_url="http://test-server")
+
+    result = client.invoke_list_sales_order()
+
+    assert result is None
+
+
+@patch('agent.src.mcp_client.requests.post')
+def test_invoke_tool_malformed_response_returns_none(mock_post):
+    """Test malformed JSON response returns None"""
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"jsonrpc": "2.0", "id": 1}
+    mock_post.return_value = mock_response
+
+    client = MCPClient(server_url="http://test-server")
+
+    result = client.invoke_list_sales_order()
+
+    assert result is None
+
+
+@patch('agent.src.mcp_client.requests.post')
+def test_invoke_tool_json_error_response_returns_none(mock_post):
+    """Test JSON-RPC error response returns None"""
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "jsonrpc": "2.0",
+        "error": {"code": -32601, "message": "Method not found"},
+        "id": 1
+    }
+    mock_post.return_value = mock_response
+
+    client = MCPClient(server_url="http://test-server")
+
+    result = client.invoke_list_sales_order()
+
+    assert result is None
+
+
+@patch('agent.src.mcp_client.requests.post')
+def test_invoke_tool_empty_data_returns_result(mock_post):
+    """Test empty data list still returns result dictionary"""
+    mock_response = Mock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "jsonrpc": "2.0",
+        "result": {"data": []},
+        "id": 1
+    }
+    mock_post.return_value = mock_response
+
+    client = MCPClient(server_url="http://test-server")
+
+    result = client.invoke_list_sales_order()
+
+    assert result is not None
+    assert "data" in result
+    assert result["data"] == []
+
+
+def test_mcp_client_missing_url_raises_error():
+    """Test missing MCP_SERVER_URL raises ValueError"""
+    with patch.dict('os.environ', {}, clear=True):
+        with pytest.raises(ValueError, match="MCP server URL not configured"):
+            MCPClient()

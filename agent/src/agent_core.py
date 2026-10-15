@@ -5,6 +5,13 @@ from agent.src.mcp_client import MCPClient
 
 logger = logging.getLogger(__name__)
 
+# Trailing ID token. Mixed case is required so identifiers such as SO-1 and E-1
+# match; a lowercase-only class would drop those IDs.
+_TRAILING_ID = re.compile(r"\b([A-Za-z0-9\-]+)\s*$")
+_NON_ID_TOKENS = frozenset(
+    {"get", "list", "sales", "sale", "order", "orders", "employee", "employees"}
+)
+
 
 class AgentCore:
     def __init__(self, mcp_client: MCPClient):
@@ -36,9 +43,15 @@ class AgentCore:
             return "Error: Unable to understand query. Try 'list sales orders', 'list employees', 'get sales order <id>', or 'get employee <id>'"
 
     def _extract_id(self, query: str) -> Optional[str]:
-        # Extract ID from the original query (alphanumeric + hyphens), preserving case.
-        match = re.search(r'\b([A-Za-z0-9\-]+)\s*$', query)
-        return match.group(1) if match else None
+        # Trailing alphanumeric/hyphen token, case preserved. Command words
+        # (for example the "order" in "get sales order") are not identifiers.
+        match = _TRAILING_ID.search(query)
+        if not match:
+            return None
+        token = match.group(1)
+        if token.lower() in _NON_ID_TOKENS:
+            return None
+        return token
 
     def _handle_list_sales_orders(self) -> str:
         result = self._mcp_client.invoke_list_sales_order()

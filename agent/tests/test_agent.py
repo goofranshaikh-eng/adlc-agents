@@ -90,3 +90,39 @@ def test_verify_get_employee_by_id():
     assert "Department: Engineering" in response
     assert not response.startswith("Error")
     mock_client.invoke_get_employee_by_id.assert_called_once_with("E-1")
+
+
+def test_agent_handles_tool_returns_none():
+    """Test agent handles MCP client returning None"""
+    mock_client = Mock(spec=MCPClient)
+    mock_client.invoke_list_sales_order.return_value = None
+
+    agent = AgentCore(mcp_client=mock_client)
+
+    response = agent.process_query("list sales orders")
+
+    assert response.startswith("Error")
+    assert "Unable to fetch sales orders" in response
+
+
+def test_agent_handles_missing_id():
+    """Test agent handles missing ID in get-by-id query"""
+    mock_client = Mock(spec=MCPClient)
+    agent = AgentCore(mcp_client=mock_client)
+
+    response = agent.process_query("get sales order")
+
+    assert response.startswith("Error")
+    assert "No sales order ID provided" in response
+    mock_client.invoke_get_sales_order_by_id.assert_not_called()
+
+
+def test_agent_handles_unknown_intent():
+    """Test agent handles unknown query intent"""
+    mock_client = Mock(spec=MCPClient)
+    agent = AgentCore(mcp_client=mock_client)
+
+    response = agent.process_query("show me the dashboard")
+
+    assert response.startswith("Error")
+    assert "Unable to understand query" in response

@@ -1,47 +1,56 @@
 from unittest.mock import AsyncMock, patch
 
-import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from agent.main import app
+from tests.fastmcp_fake import assert_fastmcp_tool_call, fake_fastmcp
 
 
-def test_id_normalization(monkeypatch):
-    monkeypatch.setenv("MCP_URL", "http://127.0.0.1:8000/sse")
-
-    client = TestClient(app)
-
-    mock_response = httpx.Response(
-        status_code=200,
-        json={
+@pytest.mark.parametrize(
+    ("tool_name", "raw_id", "normalized_id", "question", "answer"),
+    [
+        (
+            "get_employee_by_id",
+            "emp-001",
+            "EMP-001",
+            "get employee emp-001",
+            "Employee EMP-001 is Alice",
+        ),
+        (
+            "get_sales_order_by_id",
+            "so-123",
+            "SO-123",
+            "get sales order so-123",
+            "Sales order SO-123 totals 100",
+        ),
+    ],
+)
+def test_id_normalization(monkeypatch, tool_name, raw_id, normalized_id, question, answer):
+    def handler(payload):
+        return {
             "jsonrpc": "2.0",
-            "result": {"id": "EMP-001", "name": "Alice"},
-            "id": 1,
-        },
-        request=httpx.Request("POST", "http://127.0.0.1:8000/sse"),
-    )
+            "id": payload.get("id"),
+            "result": {"id": normalized_id},
+        }
 
-    with (
-        patch("agent.llm_client.ask_llm", new_callable=AsyncMock) as mock_llm,
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_http,
-    ):
-        mock_llm.side_effect = [
-            {
-                "type": "tool_request",
-                "tool_name": "get_employee_by_id",
-                "tool_args": {"id": "emp-001"},
-            },
-            {
-                "type": "direct_answer",
-                "answer": "Employee EMP-001 is Alice",
-            },
-        ]
-        mock_http.return_value = mock_response
+    with fake_fastmcp(handler) as server:
+        monkeypatch.setenv("MCP_URL", server.url)
+        client = TestClient(app)
 
-        response = client.post("/query", json={"question": "get employee emp-001"})
+        with patch("agent.llm_client.ask_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.side_effect = [
+                {
+                    "type": "tool_request",
+                    "tool_name": tool_name,
+                    "tool_args": {"id": raw_id},
+                },
+                {"type": "direct_answer", "answer": answer},
+            ]
+            response = client.post("/query", json={"question": question})
 
         assert response.status_code == 200
-        assert "Alice" in response.json()["answer"]
-
-        payload = mock_http.call_args[1]["json"]
-        assert payload["params"]["arguments"]["id"] == "EMP-001"
+        assert response.json()["answer"] == answer
+        call = assert_fastmcp_tool_call(server)
+        assert call["params"]["name"] == tool_name
+        assert call["params"]["arguments"]["id"] == normalized_id

@@ -1,11 +1,9 @@
-from unittest.mock import AsyncMock, patch
-
-import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 import agent.health as health
 from agent.main import app
+from tests.fastmcp_fake import fake_fastmcp, tool_success
 
 
 @pytest.fixture(autouse=True)
@@ -18,17 +16,14 @@ def _clear_probe_cache():
 
 
 def test_health_mcp_up(monkeypatch):
-    monkeypatch.setenv("MCP_URL", "http://127.0.0.1:8000/sse")
-
-    client = TestClient(app)
-
-    with patch("httpx.AsyncClient.head", new_callable=AsyncMock) as mock_head:
-        mock_head.return_value = httpx.Response(
-            status_code=200,
-            request=httpx.Request("HEAD", "http://127.0.0.1:8000/sse"),
-        )
+    with fake_fastmcp(tool_success) as server:
+        monkeypatch.setenv("MCP_URL", server.url)
+        client = TestClient(app)
 
         response = client.get("/health")
 
         assert response.status_code == 200
         assert response.json() == {"status": "up", "mcp_reachable": True}
+        assert server.gets, "health probe never opened the SSE endpoint"
+        assert server.gets[0]["path"].rstrip("/") == "/sse"
+        assert "text/event-stream" in (server.gets[0]["accept"] or "")

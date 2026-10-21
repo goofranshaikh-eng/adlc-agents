@@ -1,9 +1,21 @@
 import asyncio
 import os
+import re
 
 from anthropic import Anthropic
 
 _client = None
+
+_GET_BY_ID = (
+    (
+        "get_employee_by_id",
+        re.compile(r"\bget\s+employee\s+([A-Za-z]+-\d+)\b", re.IGNORECASE),
+    ),
+    (
+        "get_sales_order_by_id",
+        re.compile(r"\bget\s+sales\s+order\s+([A-Za-z]+-\d+)\b", re.IGNORECASE),
+    ),
+)
 
 
 def _get_client():
@@ -31,6 +43,17 @@ def _is_greeting_or_help(question: str) -> bool:
 
 
 def _infer_tool(question: str) -> tuple[str, dict]:
+    """Map a data question to one of the four MCP tools.
+
+    ``get <entity> <id>`` is checked before the list heuristics so
+    ``get employee emp-001`` does not collapse into ``list_employees``
+    and drop the id.
+    """
+    for tool_name, pattern in _GET_BY_ID:
+        match = pattern.search(question)
+        if match:
+            return tool_name, {"id": match.group(1)}
+
     lowered = question.lower()
     if "sales order" in lowered:
         return "list_sales_order", {}

@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, patch
 
-import httpx
 from fastapi.testclient import TestClient
 
 from agent.main import app
@@ -11,10 +10,7 @@ def test_mcp_unreachable(monkeypatch):
 
     client = TestClient(app)
 
-    with (
-        patch("agent.llm_client.ask_llm", new_callable=AsyncMock) as mock_llm,
-        patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_http,
-    ):
+    with patch("agent.llm_client.ask_llm", new_callable=AsyncMock) as mock_llm:
         mock_llm.side_effect = [
             {
                 "type": "tool_request",
@@ -26,12 +22,10 @@ def test_mcp_unreachable(monkeypatch):
                 "answer": "I'm sorry, the MCP server is unreachable.",
             },
         ]
-        mock_http.side_effect = httpx.ConnectError(
-            "Connection refused",
-            request=httpx.Request("POST", "http://127.0.0.1:9999/sse"),
-        )
 
         response = client.post("/query", json={"question": "list sales orders"})
 
-        assert response.status_code == 200
-        assert "unreachable" in response.json()["answer"].lower()
+    assert response.status_code == 200
+    assert "unreachable" in response.json()["answer"].lower()
+    tool_result = mock_llm.await_args_list[1].kwargs["tool_result"]
+    assert "unreachable" in tool_result["error"].lower()

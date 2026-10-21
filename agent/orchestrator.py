@@ -1,4 +1,4 @@
-from agent import llm_client, mcp_stub
+from agent import llm_client, mcp_client
 
 
 async def process_question(question: str) -> dict:
@@ -12,7 +12,7 @@ async def process_question(question: str) -> dict:
             tool_name = llm_response["tool_name"]
             tool_args = llm_response["tool_args"]
 
-            tool_result = await mcp_stub.call_tool(tool_name, tool_args)
+            tool_result = await mcp_client.call_tool(tool_name, tool_args)
 
             synthesized = await llm_client.ask_llm(question, tool_result=tool_result)
             return {"answer": synthesized["answer"]}

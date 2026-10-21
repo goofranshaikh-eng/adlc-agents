@@ -10,7 +10,7 @@ def test_query_tool_stub():
 
     with (
         patch("agent.llm_client.ask_llm", new_callable=AsyncMock) as mock_llm,
-        patch("agent.mcp_stub.call_tool", new_callable=AsyncMock) as mock_mcp,
+        patch("agent.mcp_client.call_tool", new_callable=AsyncMock) as mock_mcp,
     ):
         mock_llm.side_effect = [
             {

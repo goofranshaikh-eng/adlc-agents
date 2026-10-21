@@ -18,6 +18,7 @@ class _FastMCPServer(ThreadingHTTPServer):
         self.tool_result = tool_result
         self.posts = []
         self.gets = []
+        self.events = []
         self.outbound = queue.Queue()
         self.initialized = False
         self.daemon_threads = True
@@ -41,7 +42,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
-        self.server.gets.append({"path": path, "accept": self.headers.get("Accept")})
+        accept = self.headers.get("Accept")
+        self.server.gets.append({"path": path, "accept": accept})
+        self.server.events.append({"method": "GET", "path": path, "accept": accept})
         if path.rstrip("/") != "/sse":
             self.send_error(404)
             return
@@ -71,6 +74,8 @@ class _Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             payload = {"_raw": raw.decode(errors="replace")}
         self.server.posts.append({"path": path, "body": payload})
+        rpc_method = payload.get("method") if isinstance(payload, dict) else None
+        self.server.events.append({"method": "POST", "path": path, "rpc": rpc_method})
 
         if path.rstrip("/") != "/messages":
             self.send_response(405)
@@ -175,11 +180,21 @@ def tool_success(payload: dict) -> dict:
 
 
 def assert_fastmcp_tool_call(server) -> dict:
-    """Return the tools/call body if the client used the SSE session."""
-    assert server.gets, "client never opened the SSE endpoint"
-    assert "text/event-stream" in (server.gets[0]["accept"] or "")
+    """Return the tools/call body if the client used the SSE session.
+
+    A FastMCP server rejects a bare JSON-RPC POST to the SSE URL. The client
+    must open the event stream first, then post to the advertised session URL.
+    """
+    assert server.events, "client made no HTTP calls"
+    opened = server.events[0]
+    assert opened["method"] == "GET", "FastMCP SSE requires GET before any POST"
+    assert opened["path"].rstrip("/") == "/sse"
+    assert "text/event-stream" in (opened["accept"] or "")
+    assert all(
+        not (event["method"] == "POST" and event["path"].rstrip("/") == "/sse")
+        for event in server.events
+    ), "client posted JSON-RPC to the SSE URL; FastMCP rejects that"
     assert server.posts, "client never posted a JSON-RPC message"
-    assert all(p["path"].rstrip("/") != "/sse" for p in server.posts)
     methods = [p["body"].get("method") for p in server.posts]
     assert methods[:3] == ["initialize", "notifications/initialized", "tools/call"]
     tool_calls = [p["body"] for p in server.posts if p["body"].get("method") == "tools/call"]

@@ -12,7 +12,11 @@ from agent.main import app
         ("list sales orders", "list_sales_order", {}),
         ("list employees", "list_employees", {}),
         ("get employee emp-001", "get_employee_by_id", {"id": "emp-001"}),
+        ("get employee emp001", "get_employee_by_id", {"id": "emp001"}),
+        ("get employee foo-bar-123", "get_employee_by_id", {"id": "foo-bar-123"}),
+        ("get employee emp_001", "get_employee_by_id", {"id": "emp_001"}),
         ("get sales order so-123", "get_sales_order_by_id", {"id": "so-123"}),
+        ("get sales order so123", "get_sales_order_by_id", {"id": "so123"}),
     ],
 )
 def test_query_tool_routed_to_client(question, tool_name, tool_args):

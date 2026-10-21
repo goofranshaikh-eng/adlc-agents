@@ -48,12 +48,18 @@ _TOOL_NAMES = {tool["name"] for tool in _TOOLS}
 
 # Entity-by-id handlers. Checked before list routing so "get employee emp-001"
 # cannot collapse into list_employees (and "get sales order so-123" cannot
-# collapse into list_sales_order) and drop the id. The captured id is the raw
-# question text (emp-001, emp001, Emp-001, so-123, so123, ord-001);
-# mcp_client uppercases it before the FastMCP call.
+# collapse into list_sales_order) and drop the id.
 #
-# The id token must contain a digit so filler words are not captured.
-_ID_TOKEN = r"([A-Za-z][\w-]*\d[\w-]*)"
+# The captured id is the raw question token. This module does not normalize.
+# The original stdio orchestrator uppercased every string id with no format
+# regex (``value.upper() if key == "id"``), so hyphenated and unhyphenated
+# forms are both in scope: emp-001, Emp-001, emp001, foo-bar-123, emp_001,
+# 001. ``mcp_client`` applies that uppercasing before the FastMCP call.
+#
+# ``[\w-]+`` is the historical token: letters, digits, underscore, and hyphen.
+# It keeps emp001 (no hyphen) and multi-part ids instead of requiring
+# prefix-digits with a hyphen.
+_ID_TOKEN = r"([\w-]+)"
 _EMPLOYEE_BY_ID = re.compile(
     rf"\b(?:get\s+employee(?:\s+with\s+id)?|employee\s+with\s+id)\s+{_ID_TOKEN}\b",
     re.IGNORECASE,

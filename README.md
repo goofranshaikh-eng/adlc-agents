@@ -127,7 +127,7 @@ pytest tests/ -v
 
 **Test coverage:**
 - Direct LLM answers (no MCP call)
-- MCP tool calls over HTTP
+- MCP tool calls over HTTP (all four tools: `list_sales_order`, `list_employees`, `get_sales_order_by_id`, `get_employee_by_id`)
 - Error handling (MCP unreachable, tool errors, LLM unavailable)
 - Health endpoint
 

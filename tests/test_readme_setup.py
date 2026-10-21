@@ -81,3 +81,19 @@ def test_readme_setup_end_to_end(monkeypatch):
     assert "answer" in data
     assert data["answer"] == "Hello! How can I help you?"
     assert len(data["answer"]) > 0
+
+
+def test_readme_documents_all_four_tools():
+    """README documents all four MCP tools, including get-by-id examples."""
+    content = _readme()
+
+    assert "list_sales_order" in content, "README missing list_sales_order tool"
+    assert "list_employees" in content, "README missing list_employees tool"
+    assert "get_sales_order_by_id" in content, "README missing get_sales_order_by_id tool"
+    assert "get_employee_by_id" in content, "README missing get_employee_by_id tool"
+
+    lowered = content.lower()
+    assert "get employee emp-001" in lowered, "README missing get employee by ID example"
+    assert "get sales order so-123" in lowered, "README missing get sales order by ID example"
+    assert "emp-001" in lowered and "EMP-001" in content, "README missing employee ID normalization"
+    assert "so-123" in lowered and "SO-123" in content, "README missing sales-order ID normalization"

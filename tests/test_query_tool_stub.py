@@ -22,24 +22,17 @@ def test_query_tool_routed_to_client(question, tool_name, tool_args):
         patch("agent.llm_client.ask_llm", new_callable=AsyncMock) as mock_llm,
         patch("agent.mcp_client.call_tool", new_callable=AsyncMock) as mock_mcp,
     ):
-        mock_llm.side_effect = [
-            {
-                "type": "tool_request",
-                "tool_name": tool_name,
-                "tool_args": tool_args,
-            },
-            {
-                "type": "direct_answer",
-                "answer": "I'm sorry, the MCP service is not yet available.",
-            },
-        ]
+        mock_llm.return_value = {
+            "type": "tool_request",
+            "tool_name": tool_name,
+            "tool_args": tool_args,
+        }
         mock_mcp.return_value = {"error": "MCP not implemented"}
 
         response = client.post("/query", json={"question": question})
 
         assert response.status_code == 200
-        body = response.json()["answer"]
-        assert "MCP" in body or "not yet available" in body
+        assert response.json() == {"error": "MCP not implemented"}
 
-        assert mock_llm.call_count == 2
+        assert mock_llm.call_count == 1
         mock_mcp.assert_called_once_with(tool_name, tool_args)

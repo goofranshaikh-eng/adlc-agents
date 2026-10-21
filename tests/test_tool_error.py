@@ -19,21 +19,14 @@ def test_tool_error(monkeypatch):
         client = TestClient(app)
 
         with patch("agent.llm_client.ask_llm", new_callable=AsyncMock) as mock_llm:
-            mock_llm.side_effect = [
-                {
-                    "type": "tool_request",
-                    "tool_name": "get_employee_by_id",
-                    "tool_args": {"id": "EMP-999"},
-                },
-                {
-                    "type": "direct_answer",
-                    "answer": "I'm sorry, the employee was not found.",
-                },
-            ]
+            mock_llm.return_value = {
+                "type": "tool_request",
+                "tool_name": "get_employee_by_id",
+                "tool_args": {"id": "EMP-999"},
+            }
 
             response = client.post("/query", json={"question": "get employee emp-999"})
 
         assert response.status_code == 200
-        assert "not found" in response.json()["answer"].lower()
-        tool_result = mock_llm.await_args_list[1].kwargs["tool_result"]
-        assert tool_result == {"error": "Employee not found"}
+        assert response.json() == {"error": "Employee not found"}
+        assert mock_llm.call_count == 1

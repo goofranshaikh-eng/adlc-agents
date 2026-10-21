@@ -31,7 +31,10 @@ def test_id_normalization(monkeypatch, tool_name, raw_id, normalized_id, questio
         return {
             "jsonrpc": "2.0",
             "id": payload.get("id"),
-            "result": {"id": normalized_id},
+            "result": {
+                "content": [{"type": "text", "text": answer}],
+                "isError": False,
+            },
         }
 
     with fake_fastmcp(handler) as server:

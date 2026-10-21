@@ -14,6 +14,10 @@ async def process_question(question: str) -> dict:
 
             tool_result = await mcp_client.call_tool(tool_name, tool_args)
 
+            # AC-3: a tool or MCP failure is a clear error, not a synthesized answer.
+            if isinstance(tool_result, dict) and tool_result.get("error"):
+                return {"error": tool_result["error"]}
+
             synthesized = await llm_client.ask_llm(question, tool_result=tool_result)
             return {"answer": synthesized["answer"]}
 

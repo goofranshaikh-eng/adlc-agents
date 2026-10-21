@@ -1,11 +1,13 @@
 """AC-2: tool calls use the official FastMCP SSE transport.
 
-A test that mocks ``httpx.post`` and returns 200 still passes if the agent
-POSTs JSON-RPC at the SSE URL. FastMCP rejects that. These tests start the
-``mcp`` library's FastMCP SSE server and leave ``sse_client`` and ``httpx``
-unpatched, so the handshake has to succeed for real.
+These tests start the ``mcp`` library's FastMCP SSE server and leave
+``sse_client`` unpatched. The agent has to open ``GET /sse`` with
+``Accept: text/event-stream``, then post ``initialize``,
+``notifications/initialized``, and ``tools/call`` to the session URL.
+A JSON-RPC POST straight at the SSE URL does not complete that handshake.
 """
 
+import json
 import threading
 import time
 from contextlib import contextmanager
@@ -26,23 +28,55 @@ def test_transport_uses_official_sse_client():
 
 
 class _RecordingASGI:
-    """Record the HTTP method and path without buffering the SSE stream."""
+    """Record each request as it arrives, including the JSON-RPC method.
+
+    The SSE response stays streaming. Only the request body is copied as the
+    server reads it, so the event stream is not buffered.
+    """
 
     def __init__(self, asgi_app, events: list):
         self._app = asgi_app
         self._events = events
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] == "http":
-            headers = {key.decode().lower(): value.decode() for key, value in scope.get("headers", [])}
-            self._events.append(
-                {
-                    "method": scope["method"],
-                    "path": scope["path"],
-                    "accept": headers.get("accept"),
-                }
-            )
-        await self._app(scope, receive, send)
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        headers = {
+            key.decode().lower(): value.decode()
+            for key, value in scope.get("headers", [])
+        }
+        event = {
+            "method": scope["method"],
+            "path": scope["path"],
+            "accept": headers.get("accept"),
+        }
+        self._events.append(event)
+        body = bytearray()
+
+        async def sniff():
+            message = await receive()
+            if message["type"] == "http.request":
+                body.extend(message.get("body") or b"")
+                if not message.get("more_body", False):
+                    _attach_rpc(event, bytes(body))
+            return message
+
+        await self._app(scope, sniff, send)
+
+
+def _attach_rpc(event: dict, body: bytes) -> None:
+    if event["method"] != "POST" or not body:
+        return
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(payload, dict):
+        return
+    event["rpc"] = payload.get("method")
+    event["params"] = payload.get("params")
 
 
 @contextmanager
@@ -94,16 +128,37 @@ def live_fastmcp():
         thread.join(timeout=5)
 
 
-def _assert_sse_contract(events: list) -> None:
+def _assert_sse_contract(events: list, tool_name: str, arguments: dict) -> None:
+    """Fail unless the client completed a real FastMCP SSE session.
+
+    FastMCP ignores a JSON-RPC POST to the SSE URL. The session is a GET on
+    ``/sse``, then POSTs to the advertised ``/messages`` endpoint.
+    """
     assert events, "client made no HTTP calls to the FastMCP server"
     opened = events[0]
     assert opened["method"] == "GET", "FastMCP SSE requires GET before any POST"
     assert opened["path"].rstrip("/") == "/sse"
     assert "text/event-stream" in (opened["accept"] or "")
     assert all(
-        not (event["method"] == "POST" and event["path"].rstrip("/") == "/sse") for event in events
+        not (event["method"] == "POST" and event["path"].rstrip("/") == "/sse")
+        for event in events
     ), "client posted JSON-RPC to the SSE URL; FastMCP rejects that"
-    assert any(event["method"] == "POST" and event["path"].rstrip("/") == "/messages" for event in events)
+
+    posts = [event for event in events if event["method"] == "POST"]
+    assert posts, "client never posted a JSON-RPC message"
+    assert all(
+        event["path"].rstrip("/") == "/messages" for event in posts
+    ), "tool calls must POST to the SSE session URL, not the SSE URL"
+    methods = [event.get("rpc") for event in posts]
+    assert "initialize" in methods
+    assert "notifications/initialized" in methods
+    call_indexes = [index for index, method in enumerate(methods) if method == "tools/call"]
+    assert call_indexes, f"client never called a tool; methods were {methods}"
+    assert methods.index("initialize") < methods.index("notifications/initialized") < call_indexes[-1]
+
+    call = posts[call_indexes[-1]]
+    assert call["params"]["name"] == tool_name
+    assert call["params"]["arguments"] == arguments
 
 
 def test_tool_call_success(monkeypatch):
@@ -128,7 +183,7 @@ def test_tool_call_success(monkeypatch):
 
         assert response.status_code == 200
         assert "sales orders" in response.json()["answer"].lower()
-        _assert_sse_contract(peer["events"])
+        _assert_sse_contract(peer["events"], "list_sales_order", {})
         assert peer["calls"] == [("list_sales_order", {})]
         tool_result = mock_llm.await_args_list[1].kwargs["tool_result"]
         assert tool_result == {"result": "ok"}
@@ -161,7 +216,7 @@ def test_four_tools_use_fastmcp_sse(monkeypatch, tool_name, tool_args, expected_
 
         assert response.status_code == 200
         assert tool_name in response.json()["answer"]
-        _assert_sse_contract(peer["events"])
+        _assert_sse_contract(peer["events"], tool_name, expected_args)
         assert peer["calls"] == [(tool_name, expected_args)]
         tool_result = mock_llm.await_args_list[1].kwargs["tool_result"]
         assert tool_result == {"result": "ok"}

@@ -103,3 +103,7 @@ def test_readme_documents_all_four_tools():
     assert "so-123" in lowered and "SO-123" in content, "README missing sales-order ID normalization"
     assert "emp001" in lowered and "EMP001" in content, "README missing unhyphenated employee ID"
     assert "so123" in lowered and "SO123" in content, "README missing unhyphenated sales-order ID"
+    assert "ord-001" in lowered and "ORD-001" in content, "README missing ord-001 normalization"
+    assert "prefix-digits" in lowered, "README missing prefix-digits ID format"
+    assert "foo-bar-123" in lowered and "FOO-BAR-123" in content
+    assert "passed through" not in lowered

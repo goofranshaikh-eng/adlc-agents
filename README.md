@@ -50,7 +50,15 @@ Load environment variables:
 export $(cat .env | xargs)
 ```
 
-Tool `id` arguments are uppercased before the call. Any string `id` is accepted; hyphens and other separators are kept. Setup examples: `emp-001` / `Emp-001` → `EMP-001`, `emp001` / `Emp001` → `EMP001`, `so-123` → `SO-123`, `so123` → `SO123`, `ord-001` / `Ord-001` → `ORD-001`. Already-uppercase ids such as `EMP-001` stay `EMP-001`. Ids that are not a single prefix plus digits are still uppercased (`foo-bar-123` → `FOO-BAR-123`, `emp_001` → `EMP_001`).
+**Example IDs** (uppercased before the tool call; hyphens and other separators are kept):
+
+| Example input | Sent to the tool |
+|---|---|
+| `emp-001`, `Emp-001`, `EMP-001` | `EMP-001` |
+| `emp001`, `Emp001` | `EMP001` |
+| `so-123`, `SO-123` | `SO-123` |
+| `so123` | `SO123` |
+| `ord-001`, `Ord-001` | `ORD-001` |
 
 ## Running the Agent
 
@@ -111,15 +119,17 @@ When `tool_result` contains `{"error": "..."}`, or the MCP call fails, `POST /qu
 - `"get sales order so123"` — Calls `get_sales_order_by_id` tool (ID normalized to `SO123`)
 - `"get sales order ord-001"` — Calls `get_sales_order_by_id` tool (ID normalized to `ORD-001`)
 
-`id` arguments are uppercased before the tool call. Hyphenated and unhyphenated forms are both accepted:
+**ID Format:**
 
-| Example input | Sent to the tool |
-|---|---|
-| `emp-001`, `Emp-001`, `EMP-001` | `EMP-001` |
-| `emp001`, `Emp001` | `EMP001` |
-| `so-123`, `SO-123` | `SO-123` |
-| `so123` | `SO123` |
-| `ord-001`, `Ord-001` | `ORD-001` |
+A string `id` is uppercased before the MCP call. There is no format regex: hyphenated and unhyphenated ids are both supported, and separators are kept. Prefix-digits with a hyphen (for example `emp-001`, `so-123`) is the usual form, and the same prefixes without a hyphen are supported too.
+
+- `emp-001`, `Emp-001`, `EMP-001` → `EMP-001`
+- `emp001`, `Emp001` → `EMP001`
+- `so-123` → `SO-123`
+- `so123` → `SO123`
+- `ord-001`, `Ord-001` → `ORD-001`
+- `foo-bar-123` → `FOO-BAR-123`
+- `emp_001` → `EMP_001`
 
 ## Health Check
 
@@ -152,6 +162,7 @@ pytest tests/ -v
 **Test coverage:**
 - Direct LLM answers (no MCP call)
 - MCP tool calls over HTTP (all four tools: `list_sales_order`, `list_employees`, `get_sales_order_by_id`, `get_employee_by_id`)
+- ID normalization (any string `id` is uppercased, including prefix-digits with a hyphen such as `emp-001` and unhyphenated forms such as `emp001`)
 - Error handling (MCP unreachable, tool errors returned as `{"error": "..."}`, LLM unavailable)
 - Health endpoint
 

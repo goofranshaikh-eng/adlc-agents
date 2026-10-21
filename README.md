@@ -1,10 +1,10 @@
 # TriNet Agent
 
-AI agent that answers questions about TriNet employee and sales-order data. The agent uses an LLM (Anthropic Claude or compatible gateway) to decide whether to answer directly or call MCP tools over HTTP, then synthesizes the final answer.
+AI agent that answers questions about TriNet employee and sales-order data. The agent uses an LLM (Anthropic Claude or compatible gateway) to decide whether to answer directly or call MCP tools over HTTP. Successful tool data is synthesized into the final answer. A tool result of `{"error": "..."}`, or an unreachable MCP server, is returned as that error.
 
 **Architecture:**
 - **FastAPI** web server serving `/query` and `/health` endpoints
-- **LLM client** for direct answers and synthesis
+- **LLM client** for direct answers and synthesis of successful tool data
 - **FastMCP HTTP client** to call MCP tools at a shared MCP server
 
 ## Prerequisites
@@ -84,6 +84,15 @@ curl -X POST http://localhost:8001/query \
 ```
 
 **Response (error):**
+
+When `tool_result` contains `{"error": "..."}`, or the MCP call fails, `POST /query` returns that failure directly:
+
+```json
+{
+  "error": "Employee not found"
+}
+```
+
 ```json
 {
   "error": "MCP server unreachable"
@@ -128,7 +137,7 @@ pytest tests/ -v
 **Test coverage:**
 - Direct LLM answers (no MCP call)
 - MCP tool calls over HTTP (all four tools: `list_sales_order`, `list_employees`, `get_sales_order_by_id`, `get_employee_by_id`)
-- Error handling (MCP unreachable, tool errors, LLM unavailable)
+- Error handling (MCP unreachable, tool errors returned as `{"error": "..."}`, LLM unavailable)
 - Health endpoint
 
 ### Project Structure

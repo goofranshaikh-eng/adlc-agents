@@ -56,6 +56,10 @@ def test_readme_documents_fastapi_primary_path():
     assert "post /query" in lowered or 'post http://localhost:8001/query' in lowered
     assert "/health" in content
     assert "pytest tests/ -v" in content
+    assert '"error": "Employee not found"' in content
+    assert '"error": "MCP server unreachable"' in content
+    assert 'tool_result' in content
+    assert '{"error": "..."}' in content
 
 
 def test_readme_setup_end_to_end(monkeypatch):

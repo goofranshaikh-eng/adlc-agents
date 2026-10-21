@@ -131,25 +131,33 @@ def _leaves(exc: BaseException):
 
 
 def _normalize_id(args: dict) -> dict:
-    """Uppercase an ``id`` argument the way the original agent did.
+    """Uppercase a string ``id`` the way the original stdio agent did.
 
-    Audit of the original orchestrator (``value.upper() if key == "id"``):
-    the only normalization is ``value.upper()`` when the argument key is
-    ``id``. There is no format regex, so hyphenated and unhyphenated ids are
-    both supported. The hyphen, underscore, and extra segments are kept.
-    Patterns that rule covers:
+    Investigation of PER-7 ``app/agent/orchestrator.py`` (commit ``e9724eb``)
+    found a single rule and no format regex::
+
+        value.upper() if key == "id" else value
+
+    The PER-7 README says employee and sales-order ids are uppercased before
+    the tool call. The automated example is ``emp-001`` → ``EMP-001``;
+    ``tests/manual_verification.md`` also expects ``ord-001`` → ``ORD-001``.
+    Because the code uppercases any string, unhyphenated and multi-part ids
+    are in scope too. A hyphen-only pattern such as ``^([a-z]+)-(\\d+)$``
+    would leave ``emp001`` unchanged and drop that support.
+
+    Supported (separators are kept; only case changes):
 
     - ``emp-001``, ``Emp-001``, ``eMp-001``, ``EMP-001`` → ``EMP-001``
     - ``emp001``, ``Emp001``, ``EMP001`` → ``EMP001``
     - ``so-123``, ``SO-123`` → ``SO-123``
     - ``so123`` → ``SO123``
     - ``ord-001``, ``Ord-001`` → ``ORD-001``
-    - ``foo-bar-123`` → ``FOO-BAR-123``
+    - ``foo-bar-123``, ``Foo-Bar-123`` → ``FOO-BAR-123``
     - ``emp_001`` → ``EMP_001``
 
     Other argument keys are left unchanged. Non-string ``id`` values are left
-    unchanged (the original only received strings; ``.upper()`` on a non-string
-    would raise).
+    unchanged. The original called ``.upper()`` and would raise on a
+    non-string; its tool schema only supplied strings.
     """
     if "id" not in args:
         return args

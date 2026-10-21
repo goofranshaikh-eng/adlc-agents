@@ -50,6 +50,8 @@ Load environment variables:
 export $(cat .env | xargs)
 ```
 
+Tool `id` arguments are uppercased before the call. Setup examples use both hyphenated and unhyphenated forms: `emp-001` → `EMP-001`, `emp001` → `EMP001`, `so-123` → `SO-123`, `so123` → `SO123`. Already-uppercase ids such as `EMP-001` stay `EMP-001`.
+
 ## Running the Agent
 
 Start the FastAPI server with `uvicorn`:
@@ -104,7 +106,18 @@ When `tool_result` contains `{"error": "..."}`, or the MCP call fails, `POST /qu
 - `"list sales orders"` — Calls `list_sales_order` tool
 - `"list employees"` — Calls `list_employees` tool
 - `"get employee emp-001"` — Calls `get_employee_by_id` tool (ID normalized to `EMP-001`)
+- `"get employee emp001"` — Calls `get_employee_by_id` tool (ID normalized to `EMP001`)
 - `"get sales order so-123"` — Calls `get_sales_order_by_id` tool (ID normalized to `SO-123`)
+- `"get sales order so123"` — Calls `get_sales_order_by_id` tool (ID normalized to `SO123`)
+
+`id` arguments are uppercased before the tool call. Hyphenated and unhyphenated forms are both accepted:
+
+| Example input | Sent to the tool |
+|---|---|
+| `emp-001`, `Emp-001`, `EMP-001` | `EMP-001` |
+| `emp001`, `Emp001` | `EMP001` |
+| `so-123`, `SO-123` | `SO-123` |
+| `so123` | `SO123` |
 
 ## Health Check
 

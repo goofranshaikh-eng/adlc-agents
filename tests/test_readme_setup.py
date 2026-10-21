@@ -101,3 +101,5 @@ def test_readme_documents_all_four_tools():
     assert "get sales order so-123" in lowered, "README missing get sales order by ID example"
     assert "emp-001" in lowered and "EMP-001" in content, "README missing employee ID normalization"
     assert "so-123" in lowered and "SO-123" in content, "README missing sales-order ID normalization"
+    assert "emp001" in lowered and "EMP001" in content, "README missing unhyphenated employee ID"
+    assert "so123" in lowered and "SO123" in content, "README missing unhyphenated sales-order ID"

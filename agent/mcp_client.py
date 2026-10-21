@@ -1,6 +1,5 @@
 import json
 import os
-import re
 from datetime import timedelta
 
 import httpx
@@ -132,7 +131,20 @@ def _leaves(exc: BaseException):
 
 
 def _normalize_id(args: dict) -> dict:
-    """Normalize 'id' argument: emp-001 → EMP-001, so-123 → SO-123."""
+    """Uppercase an ``id`` argument the way the stdio agent did.
+
+    The original stdio orchestrator applied ``str.upper()`` to every string
+    ``id`` and left other arguments unchanged. That accepts hyphenated and
+    unhyphenated ids in any case:
+
+    - ``emp-001``, ``Emp-001``, ``EMP-001`` → ``EMP-001``
+    - ``emp001``, ``Emp001`` → ``EMP001``
+    - ``so-123``, ``SO-123`` → ``SO-123``
+    - ``so123`` → ``SO123``
+    - ``ord-001`` → ``ORD-001``
+
+    Non-string ``id`` values are left unchanged.
+    """
     if "id" not in args:
         return args
 
@@ -140,9 +152,4 @@ def _normalize_id(args: dict) -> dict:
     if not isinstance(id_value, str):
         return args
 
-    match = re.match(r"^([a-z]+)-(\d+)$", id_value, re.IGNORECASE)
-    if match:
-        prefix, digits = match.groups()
-        return {**args, "id": f"{prefix.upper()}-{digits}"}
-
-    return args
+    return {**args, "id": id_value.upper()}

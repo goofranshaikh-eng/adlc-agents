@@ -1,21 +1,49 @@
 import asyncio
 import os
-import re
 
 from anthropic import Anthropic
 
 _client = None
-
-_GET_BY_ID = (
-    (
-        "get_employee_by_id",
-        re.compile(r"\bget\s+employee\s+([A-Za-z]+-\d+)\b", re.IGNORECASE),
-    ),
-    (
-        "get_sales_order_by_id",
-        re.compile(r"\bget\s+sales\s+order\s+([A-Za-z]+-\d+)\b", re.IGNORECASE),
-    ),
-)
+_MODEL = "claude-sonnet-4-5-20250929"
+_TOOLS = [
+    {
+        "name": "list_sales_order",
+        "description": "List every sales order. No arguments.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "list_employees",
+        "description": "List every employee. No arguments.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_sales_order_by_id",
+        "description": (
+            "Fetch one sales order by id. Hyphenated and unhyphenated forms "
+            "are accepted and uppercased before the call "
+            "(so-123, so123, ord-001)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "get_employee_by_id",
+        "description": (
+            "Fetch one employee by id. Hyphenated and unhyphenated forms "
+            "are accepted and uppercased before the call "
+            "(emp-001, Emp-001, emp001)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}},
+            "required": ["id"],
+        },
+    },
+]
+_TOOL_NAMES = {tool["name"] for tool in _TOOLS}
 
 
 def _get_client():
@@ -30,36 +58,41 @@ def _get_client():
 
 def _call_llm_sync(client, prompt: str) -> str:
     response = client.messages.create(
-        model="claude-sonnet-4-5-20250929",
+        model=_MODEL,
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text
 
 
-def _is_greeting_or_help(question: str) -> bool:
-    greetings = ["hello", "hi", "help", "what can you do"]
-    return any(g in question.lower() for g in greetings)
+def _tool_args(block) -> dict:
+    raw = getattr(block, "input", None) or {}
+    return dict(raw) if isinstance(raw, dict) else {}
 
 
-def _infer_tool(question: str) -> tuple[str, dict]:
-    """Map a data question to one of the four MCP tools.
-
-    ``get <entity> <id>`` is checked before the list heuristics so
-    ``get employee emp-001`` does not collapse into ``list_employees``
-    and drop the id.
-    """
-    for tool_name, pattern in _GET_BY_ID:
-        match = pattern.search(question)
-        if match:
-            return tool_name, {"id": match.group(1)}
-
-    lowered = question.lower()
-    if "sales order" in lowered:
-        return "list_sales_order", {}
-    if "employee" in lowered:
-        return "list_employees", {}
-    return "list_sales_order", {}
+def _choose_sync(client, question: str) -> dict:
+    """Ask the model which of the four MCP tools matches the question."""
+    response = client.messages.create(
+        model=_MODEL,
+        max_tokens=1024,
+        tools=_TOOLS,
+        messages=[{"role": "user", "content": question}],
+    )
+    for block in response.content:
+        if getattr(block, "type", None) != "tool_use":
+            continue
+        name = block.name
+        if name not in _TOOL_NAMES:
+            return {"type": "direct_answer", "answer": f"Unknown tool {name}"}
+        return {
+            "type": "tool_request",
+            "tool_name": name,
+            "tool_args": _tool_args(block),
+        }
+    text = "".join(
+        block.text for block in response.content if getattr(block, "type", None) == "text"
+    ).strip()
+    return {"type": "direct_answer", "answer": text or "No answer."}
 
 
 async def ask_llm(question: str, tool_result: dict | None = None) -> dict:
@@ -69,18 +102,9 @@ async def ask_llm(question: str, tool_result: dict | None = None) -> dict:
         prompt = (
             f"User asked: {question}\n"
             f"Tool returned: {tool_result}\n"
-            "Synthesize a natural language answer."
+            "Answer from the tool payload only. Do not invent records."
         )
         response = await asyncio.to_thread(_call_llm_sync, client, prompt)
         return {"type": "direct_answer", "answer": response}
 
-    if _is_greeting_or_help(question):
-        response = await asyncio.to_thread(_call_llm_sync, client, question)
-        return {"type": "direct_answer", "answer": response}
-
-    tool_name, tool_args = _infer_tool(question)
-    return {
-        "type": "tool_request",
-        "tool_name": tool_name,
-        "tool_args": tool_args,
-    }
+    return await asyncio.to_thread(_choose_sync, client, question)

@@ -50,7 +50,7 @@ Load environment variables:
 export $(cat .env | xargs)
 ```
 
-Tool `id` arguments are uppercased before the call. Setup examples use both hyphenated and unhyphenated forms: `emp-001` → `EMP-001`, `emp001` → `EMP001`, `so-123` → `SO-123`, `so123` → `SO123`. Already-uppercase ids such as `EMP-001` stay `EMP-001`.
+Tool `id` arguments are uppercased before the call. Any string `id` is accepted; the hyphen is kept when present. Setup examples: `emp-001` → `EMP-001`, `emp001` → `EMP001`, `so-123` → `SO-123`, `so123` → `SO123`, `ord-001` → `ORD-001`. Already-uppercase ids such as `EMP-001` stay `EMP-001`.
 
 ## Running the Agent
 
@@ -109,6 +109,7 @@ When `tool_result` contains `{"error": "..."}`, or the MCP call fails, `POST /qu
 - `"get employee emp001"` — Calls `get_employee_by_id` tool (ID normalized to `EMP001`)
 - `"get sales order so-123"` — Calls `get_sales_order_by_id` tool (ID normalized to `SO-123`)
 - `"get sales order so123"` — Calls `get_sales_order_by_id` tool (ID normalized to `SO123`)
+- `"get sales order ord-001"` — Calls `get_sales_order_by_id` tool (ID normalized to `ORD-001`)
 
 `id` arguments are uppercased before the tool call. Hyphenated and unhyphenated forms are both accepted:
 
@@ -118,6 +119,7 @@ When `tool_result` contains `{"error": "..."}`, or the MCP call fails, `POST /qu
 | `emp001`, `Emp001` | `EMP001` |
 | `so-123`, `SO-123` | `SO-123` |
 | `so123` | `SO123` |
+| `ord-001`, `Ord-001` | `ORD-001` |
 
 ## Health Check
 

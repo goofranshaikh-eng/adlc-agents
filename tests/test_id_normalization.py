@@ -94,6 +94,7 @@ def test_id_normalization(monkeypatch, tool_name, raw_id, normalized_id, questio
         ("SO-123", "SO-123"),
         ("so123", "SO123"),
         ("ord-001", "ORD-001"),
+        ("Ord-001", "ORD-001"),
     ],
 )
 def test_normalize_id_uppercases_stdio_patterns(raw_id, normalized_id):

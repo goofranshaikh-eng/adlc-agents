@@ -50,7 +50,7 @@ Load environment variables:
 export $(cat .env | xargs)
 ```
 
-Tool `id` arguments are uppercased before the call. Any string `id` is accepted; the hyphen is kept when present. Setup examples: `emp-001` → `EMP-001`, `emp001` → `EMP001`, `so-123` → `SO-123`, `so123` → `SO123`, `ord-001` → `ORD-001`. Already-uppercase ids such as `EMP-001` stay `EMP-001`.
+Tool `id` arguments are uppercased before the call. Any string `id` is accepted; hyphens and other separators are kept. Setup examples: `emp-001` / `Emp-001` → `EMP-001`, `emp001` / `Emp001` → `EMP001`, `so-123` → `SO-123`, `so123` → `SO123`, `ord-001` / `Ord-001` → `ORD-001`. Already-uppercase ids such as `EMP-001` stay `EMP-001`. Ids that are not a single prefix plus digits are still uppercased (`foo-bar-123` → `FOO-BAR-123`, `emp_001` → `EMP_001`).
 
 ## Running the Agent
 

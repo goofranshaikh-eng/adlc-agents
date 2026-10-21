@@ -95,10 +95,13 @@ def test_id_normalization(monkeypatch, tool_name, raw_id, normalized_id, questio
         ("so123", "SO123"),
         ("ord-001", "ORD-001"),
         ("Ord-001", "ORD-001"),
+        ("eMp-001", "EMP-001"),
+        ("foo-bar-123", "FOO-BAR-123"),
+        ("emp_001", "EMP_001"),
     ],
 )
 def test_normalize_id_uppercases_stdio_patterns(raw_id, normalized_id):
-    """stdio agent uppercased every string id, with or without a hyphen."""
+    """Original stdio agent uppercased every string id, with no format regex."""
     assert _normalize_id({"id": raw_id}) == {"id": normalized_id}
 
 

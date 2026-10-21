@@ -133,17 +133,22 @@ def _leaves(exc: BaseException):
 def _normalize_id(args: dict) -> dict:
     """Uppercase an ``id`` argument the way the stdio agent did.
 
-    The original stdio orchestrator (``value.upper()`` when the argument key
-    is ``id``) had no format regex. Every string ``id`` is uppercased and
-    other arguments are left unchanged. That accepts:
+    Audit of the original stdio orchestrator: the only normalization is
+    ``value.upper()`` when the argument key is ``id``. There is no format
+    regex, so hyphenated and unhyphenated ids are both supported. The hyphen,
+    underscore, and extra segments are kept. Patterns that rule covers:
 
-    - ``emp-001``, ``Emp-001``, ``EMP-001`` → ``EMP-001``
+    - ``emp-001``, ``Emp-001``, ``eMp-001``, ``EMP-001`` → ``EMP-001``
     - ``emp001``, ``Emp001``, ``EMP001`` → ``EMP001``
     - ``so-123``, ``SO-123`` → ``SO-123``
     - ``so123`` → ``SO123``
-    - ``ord-001`` → ``ORD-001``
+    - ``ord-001``, ``Ord-001`` → ``ORD-001``
+    - ``foo-bar-123`` → ``FOO-BAR-123``
+    - ``emp_001`` → ``EMP_001``
 
-    Non-string ``id`` values are left unchanged.
+    Other argument keys are left unchanged. Non-string ``id`` values are left
+    unchanged (the original only received strings; ``.upper()`` on a non-string
+    would raise).
     """
     if "id" not in args:
         return args

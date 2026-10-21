@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from datetime import timedelta
@@ -44,13 +45,54 @@ async def call_tool(tool_name: str, tool_args: dict) -> dict:
 
 
 def _unwrap_tool_result(result) -> dict:
-    if getattr(result, "isError", False):
-        return {"error": _content_text(getattr(result, "content", None)) or "Tool error"}
+    """Return ``{"error": ...}`` for protocol errors and tool payloads.
+
+    FastMCP tools report failure as a normal result whose body is
+    ``{"error": "..."}`` (``isError`` stays false). That shape must not be
+    wrapped as a successful result for the LLM to paraphrase.
+    """
+    structured = getattr(result, "structuredContent", None)
+    if structured is None:
+        structured = getattr(result, "structured_content", None)
 
     content = getattr(result, "content", None)
+    text = _content_text(content) if content else ""
+    payload_error = _payload_error(structured) or _payload_error(_parse_json_object(text))
+
+    if getattr(result, "isError", False):
+        return {"error": payload_error or text or "Tool error"}
+
+    if payload_error:
+        return {"error": payload_error}
+
     if content:
-        return {"result": _content_text(content)}
+        return {"result": text}
     return {"result": result}
+
+
+def _parse_json_object(text: str):
+    if not text or not text.lstrip().startswith("{"):
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _payload_error(payload) -> str | None:
+    """Extract a clear error from a tool body of ``{"error": "..."}``."""
+    if not isinstance(payload, dict) or not payload.get("error"):
+        return None
+    if any(key in payload for key in ("salesOrders", "employees", "salesOrder", "employee")):
+        return None
+
+    error = payload["error"]
+    if isinstance(error, str):
+        return error
+    if isinstance(error, dict) and error.get("message"):
+        return str(error["message"])
+    return str(error)
 
 
 def _content_text(content) -> str:

@@ -30,3 +30,40 @@ def test_tool_error(monkeypatch):
         assert response.status_code == 200
         assert response.json() == {"error": "Employee not found"}
         assert mock_llm.call_count == 1
+
+
+def test_tool_error_payload_is_not_synthesized(monkeypatch):
+    """A successful MCP result whose body is {\"error\": \"...\"} is a clear error.
+
+    FastMCP leaves isError false when the tool returns that dict. Passing the
+    body to the LLM would synthesize an apology instead of returning the error.
+    """
+
+    def handler(payload):
+        body = {"error": "Employee not found"}
+        return {
+            "jsonrpc": "2.0",
+            "id": payload.get("id"),
+            "result": {
+                "content": [{"type": "text", "text": '{"error": "Employee not found"}'}],
+                "structuredContent": body,
+                "isError": False,
+            },
+        }
+
+    with fake_fastmcp(handler) as server:
+        monkeypatch.setenv("MCP_URL", server.url)
+        client = TestClient(app)
+
+        with patch("agent.llm_client.ask_llm", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = {
+                "type": "tool_request",
+                "tool_name": "get_employee_by_id",
+                "tool_args": {"id": "EMP-999"},
+            }
+
+            response = client.post("/query", json={"question": "get employee emp-999"})
+
+        assert response.status_code == 200
+        assert response.json() == {"error": "Employee not found"}
+        assert mock_llm.call_count == 1

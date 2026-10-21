@@ -1,10 +1,12 @@
 """AC-2: tool calls use the official FastMCP SSE transport.
 
 These tests start the ``mcp`` library's FastMCP SSE server and leave
-``sse_client`` unpatched. The agent has to open ``GET /sse`` with
-``Accept: text/event-stream``, then post ``initialize``,
-``notifications/initialized``, and ``tools/call`` to the session URL.
-A JSON-RPC POST straight at the SSE URL does not complete that handshake.
+``sse_client`` and ``httpx`` unpatched. The agent has to open ``GET /sse``
+with ``Accept: text/event-stream``, read the ``endpoint`` event, then post
+``initialize``, ``notifications/initialized``, and ``tools/call`` to that
+session URL (``/messages/?session_id=...``). A JSON-RPC POST straight at the
+SSE URL does not complete that handshake, so mocking ``httpx.post`` cannot
+satisfy these assertions.
 """
 
 import json
@@ -13,6 +15,7 @@ import time
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 import uvicorn
 from fastapi.testclient import TestClient
@@ -50,6 +53,7 @@ class _RecordingASGI:
         event = {
             "method": scope["method"],
             "path": scope["path"],
+            "query": scope.get("query_string", b"").decode(),
             "accept": headers.get("accept"),
         }
         self._events.append(event)
@@ -63,7 +67,19 @@ class _RecordingASGI:
                     _attach_rpc(event, bytes(body))
             return message
 
-        await self._app(scope, sniff, send)
+        async def sniff_send(message):
+            # FastMCP returns an empty Response after the SSE stream closes.
+            # Keep the first start line, which is the event-stream response.
+            if message["type"] == "http.response.start" and "status" not in event:
+                event["status"] = message["status"]
+                response_headers = {
+                    key.decode().lower(): value.decode()
+                    for key, value in message.get("headers", [])
+                }
+                event["content_type"] = response_headers.get("content-type")
+            await send(message)
+
+        await self._app(scope, sniff, sniff_send)
 
 
 def _attach_rpc(event: dict, body: bytes) -> None:
@@ -131,14 +147,15 @@ def live_fastmcp():
 def _assert_sse_contract(events: list, tool_name: str, arguments: dict) -> None:
     """Fail unless the client completed a real FastMCP SSE session.
 
-    FastMCP ignores a JSON-RPC POST to the SSE URL. The session is a GET on
-    ``/sse``, then POSTs to the advertised ``/messages`` endpoint.
+    FastMCP rejects a JSON-RPC POST to the SSE URL. The session id is delivered
+    only in the SSE ``endpoint`` event; message POSTs must use that URL.
     """
     assert events, "client made no HTTP calls to the FastMCP server"
     opened = events[0]
     assert opened["method"] == "GET", "FastMCP SSE requires GET before any POST"
     assert opened["path"].rstrip("/") == "/sse"
     assert "text/event-stream" in (opened["accept"] or "")
+    assert "text/event-stream" in (opened.get("content_type") or "")
     assert all(
         not (event["method"] == "POST" and event["path"].rstrip("/") == "/sse")
         for event in events
@@ -146,9 +163,16 @@ def _assert_sse_contract(events: list, tool_name: str, arguments: dict) -> None:
 
     posts = [event for event in events if event["method"] == "POST"]
     assert posts, "client never posted a JSON-RPC message"
-    assert all(
-        event["path"].rstrip("/") == "/messages" for event in posts
-    ), "tool calls must POST to the SSE session URL, not the SSE URL"
+    session_ids = []
+    for event in posts:
+        assert event["path"].rstrip("/") == "/messages", (
+            "tool calls must POST to the SSE session URL, not the SSE URL"
+        )
+        assert "session_id=" in event["query"], (
+            "message POST omitted session_id; client did not read the SSE endpoint event"
+        )
+        session_ids.append(event["query"].split("session_id=", 1)[1].split("&", 1)[0])
+    assert len(set(session_ids)) == 1, "client did not stay on one SSE session"
     methods = [event.get("rpc") for event in posts]
     assert "initialize" in methods
     assert "notifications/initialized" in methods
@@ -159,6 +183,24 @@ def _assert_sse_contract(events: list, tool_name: str, arguments: dict) -> None:
     call = posts[call_indexes[-1]]
     assert call["params"]["name"] == tool_name
     assert call["params"]["arguments"] == arguments
+
+
+def test_jsonrpc_post_to_sse_url_does_not_invoke_tool():
+    """The old ``httpx.post(MCP_URL, json=rpc)`` shape is not FastMCP SSE."""
+    with live_fastmcp() as peer:
+        response = httpx.post(
+            peer["url"],
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": "list_sales_order", "arguments": {}},
+            },
+            timeout=2.0,
+        )
+
+    assert response.status_code >= 400
+    assert peer["calls"] == []
 
 
 def test_tool_call_success(monkeypatch):

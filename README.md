@@ -50,15 +50,17 @@ Load environment variables:
 export $(cat .env | xargs)
 ```
 
-**Example IDs** (uppercased before the tool call; hyphens and other separators are kept):
+**Example IDs** (any string `id` is uppercased before the tool call; hyphens and other separators are kept). Unhyphenated ids are included, not dropped:
 
 | Example input | Sent to the tool |
 |---|---|
-| `emp-001`, `Emp-001`, `EMP-001` | `EMP-001` |
-| `emp001`, `Emp001` | `EMP001` |
+| `emp-001`, `Emp-001`, `eMp-001`, `EMP-001` | `EMP-001` |
+| `emp001`, `Emp001`, `EMP001` | `EMP001` |
 | `so-123`, `SO-123` | `SO-123` |
 | `so123` | `SO123` |
 | `ord-001`, `Ord-001` | `ORD-001` |
+| `foo-bar-123`, `Foo-Bar-123` | `FOO-BAR-123` |
+| `emp_001` | `EMP_001` |
 
 ## Running the Agent
 
@@ -121,15 +123,19 @@ When `tool_result` contains `{"error": "..."}`, or the MCP call fails, `POST /qu
 
 **ID Format:**
 
-A string `id` is uppercased before the MCP call. There is no format regex: hyphenated and unhyphenated ids are both supported, and separators are kept. Prefix-digits with a hyphen (for example `emp-001`, `so-123`) is the usual form, and the same prefixes without a hyphen are supported too.
+The agent normalizes employee and sales-order IDs before calling MCP tools. `agent/mcp_client.py` (`_normalize_id`) follows the previous agent's single rule: if the argument key is `id` and the value is a string, send `value.upper()`. There is no format regex. Separators are kept; only case changes.
 
-- `emp-001`, `Emp-001`, `EMP-001` → `EMP-001`
-- `emp001`, `Emp001` → `EMP001`
-- `so-123` → `SO-123`
+Prefix-digits with a hyphen (for example `emp-001`, `so-123`) is the usual form. The same prefixes without a hyphen are supported too. Unhyphenated ids are uppercased (`emp001` → `EMP001`, `so123` → `SO123`). A hyphen-only pattern would leave `emp001` unchanged and drop that support, so it is not used. The automated examples are `emp-001` → `EMP-001` and `ord-001` → `ORD-001`.
+
+- `emp-001`, `Emp-001`, `eMp-001`, `EMP-001` → `EMP-001`
+- `emp001`, `Emp001`, `EMP001` → `EMP001`
+- `so-123`, `SO-123` → `SO-123`
 - `so123` → `SO123`
 - `ord-001`, `Ord-001` → `ORD-001`
-- `foo-bar-123` → `FOO-BAR-123`
+- `foo-bar-123`, `Foo-Bar-123` → `FOO-BAR-123`
 - `emp_001` → `EMP_001`
+
+Other argument keys are left unchanged. Non-string `id` values are left unchanged. The previous tool schema only supplied strings.
 
 ## Health Check
 

@@ -87,8 +87,12 @@ def test_readme_setup_end_to_end(monkeypatch):
     assert len(data["answer"]) > 0
 
 
-def test_readme_documents_all_four_tools():
-    """README documents all four MCP tools, including get-by-id examples."""
+def test_readme_documents_all_four_tools_and_id_format():
+    """README documents all four MCP tools and the historical ID formats.
+
+    Examples must match ``agent/mcp_client.py::_normalize_id``: any string
+    id is uppercased, including unhyphenated and multi-part forms.
+    """
     content = _readme()
 
     assert "list_sales_order" in content, "README missing list_sales_order tool"
@@ -97,13 +101,26 @@ def test_readme_documents_all_four_tools():
     assert "get_employee_by_id" in content, "README missing get_employee_by_id tool"
 
     lowered = content.lower()
+    assert "get employee" in lowered, "README missing get employee by ID example"
+    assert "get sales order" in lowered, "README missing get sales order by ID example"
     assert "get employee emp-001" in lowered, "README missing get employee by ID example"
     assert "get sales order so-123" in lowered, "README missing get sales order by ID example"
+    assert "id format" in lowered, "README missing ID Format section"
+    assert "normalize" in lowered or "uppercase" in lowered, "README missing normalization description"
+    assert "PLACEHOLDER" not in content.upper(), "README still contains PLACEHOLDER text"
+    assert "IMPLEMENTATION INSTRUCTION" not in content.upper(), (
+        "README still contains IMPLEMENTATION INSTRUCTION"
+    )
+    assert "no format regex" in lowered, "README missing historical no-regex rule"
     assert "emp-001" in lowered and "EMP-001" in content, "README missing employee ID normalization"
+    assert "emp-001" in lowered and "eMp-001" in content, "README missing mixed-case employee ID"
     assert "so-123" in lowered and "SO-123" in content, "README missing sales-order ID normalization"
     assert "emp001" in lowered and "EMP001" in content, "README missing unhyphenated employee ID"
     assert "so123" in lowered and "SO123" in content, "README missing unhyphenated sales-order ID"
     assert "ord-001" in lowered and "ORD-001" in content, "README missing ord-001 normalization"
     assert "prefix-digits" in lowered, "README missing prefix-digits ID format"
     assert "foo-bar-123" in lowered and "FOO-BAR-123" in content
+    assert "Foo-Bar-123" in content, "README missing mixed-case multi-part ID"
+    assert "emp_001" in lowered and "EMP_001" in content, "README missing underscore ID"
+    assert "unchanged and drop" in lowered, "README must say a hyphen-only pattern would drop emp001"
     assert "passed through" not in lowered

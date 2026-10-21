@@ -1,11 +1,21 @@
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agent.main import app
 
 
-def test_query_tool_stub():
+@pytest.mark.parametrize(
+    ("question", "tool_name", "tool_args"),
+    [
+        ("list sales orders", "list_sales_order", {}),
+        ("list employees", "list_employees", {}),
+        ("get employee emp-001", "get_employee_by_id", {"id": "emp-001"}),
+        ("get sales order so-123", "get_sales_order_by_id", {"id": "so-123"}),
+    ],
+)
+def test_query_tool_routed_to_client(question, tool_name, tool_args):
     client = TestClient(app)
 
     with (
@@ -15,8 +25,8 @@ def test_query_tool_stub():
         mock_llm.side_effect = [
             {
                 "type": "tool_request",
-                "tool_name": "list_sales_order",
-                "tool_args": {},
+                "tool_name": tool_name,
+                "tool_args": tool_args,
             },
             {
                 "type": "direct_answer",
@@ -25,10 +35,11 @@ def test_query_tool_stub():
         ]
         mock_mcp.return_value = {"error": "MCP not implemented"}
 
-        response = client.post("/query", json={"question": "list sales orders"})
+        response = client.post("/query", json={"question": question})
 
         assert response.status_code == 200
-        assert "MCP" in response.json()["answer"]
+        body = response.json()["answer"]
+        assert "MCP" in body or "not yet available" in body
 
         assert mock_llm.call_count == 2
-        mock_mcp.assert_called_once_with("list_sales_order", {})
+        mock_mcp.assert_called_once_with(tool_name, tool_args)

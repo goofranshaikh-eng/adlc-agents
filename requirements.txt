@@ -2,5 +2,6 @@ fastapi
 uvicorn[standard]
 httpx
 anthropic
+mcp>=1.9,<2
 pytest
 pytest-asyncio

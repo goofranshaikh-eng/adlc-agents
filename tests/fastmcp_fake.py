@@ -97,6 +97,10 @@ class _Handler(BaseHTTPRequestHandler):
             )
             self._accepted()
             return
+        if method == "tools/list":
+            self.server.outbound.put(_tools_list(payload))
+            self._accepted()
+            return
         if method == "tools/call":
             if not self.server.initialized:
                 response = {
@@ -137,6 +141,31 @@ def fake_fastmcp(tool_result):
         server.server_close()
 
 
+_TOOL_NAMES = (
+    "list_sales_order",
+    "list_employees",
+    "get_sales_order_by_id",
+    "get_employee_by_id",
+)
+
+
+def _tools_list(payload: dict) -> dict:
+    """Answer tools/list so the official SSE client can finish a call."""
+    return {
+        "jsonrpc": "2.0",
+        "id": payload.get("id"),
+        "result": {
+            "tools": [
+                {
+                    "name": name,
+                    "inputSchema": {"type": "object", "properties": {}},
+                }
+                for name in _TOOL_NAMES
+            ]
+        },
+    }
+
+
 def tool_success(payload: dict) -> dict:
     return {
         "jsonrpc": "2.0",
@@ -152,5 +181,7 @@ def assert_fastmcp_tool_call(server) -> dict:
     assert server.posts, "client never posted a JSON-RPC message"
     assert all(p["path"].rstrip("/") != "/sse" for p in server.posts)
     methods = [p["body"].get("method") for p in server.posts]
-    assert methods == ["initialize", "notifications/initialized", "tools/call"]
-    return server.posts[-1]["body"]
+    assert methods[:3] == ["initialize", "notifications/initialized", "tools/call"]
+    tool_calls = [p["body"] for p in server.posts if p["body"].get("method") == "tools/call"]
+    assert len(tool_calls) == 1
+    return tool_calls[0]

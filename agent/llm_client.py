@@ -47,26 +47,45 @@ _TOOLS = [
 _TOOL_NAMES = {tool["name"] for tool in _TOOLS}
 
 # Entity-by-id handlers. Checked before list routing so "get employee emp-001"
-# cannot collapse into list_employees and drop the id. The captured id is the
-# raw question text (emp-001, emp001, Emp-001, so-123, so123, ord-001);
+# cannot collapse into list_employees (and "get sales order so-123" cannot
+# collapse into list_sales_order) and drop the id. The captured id is the raw
+# question text (emp-001, emp001, Emp-001, so-123, so123, ord-001);
 # mcp_client uppercases it before the FastMCP call.
-_GET_BY_ID_HANDLERS = (
-    (
-        "get_employee_by_id",
-        re.compile(
-            r"\b(?:get\s+employee(?:\s+with\s+id)?|employee\s+with\s+id)"
-            r"\s+([A-Za-z][\w-]*)\b",
-            re.IGNORECASE,
-        ),
-    ),
-    (
-        "get_sales_order_by_id",
-        re.compile(
-            r"\b(?:get\s+sales\s+order(?:\s+with\s+id)?|sales\s+order\s+with\s+id)"
-            r"\s+([A-Za-z][\w-]*)\b",
-            re.IGNORECASE,
-        ),
-    ),
+#
+# The id token must contain a digit so filler words are not captured.
+_ID_TOKEN = r"([A-Za-z][\w-]*\d[\w-]*)"
+_EMPLOYEE_BY_ID = re.compile(
+    rf"\b(?:get\s+employee(?:\s+with\s+id)?|employee\s+with\s+id)\s+{_ID_TOKEN}\b",
+    re.IGNORECASE,
+)
+_SALES_ORDER_BY_ID = re.compile(
+    rf"\b(?:get\s+sales\s+order(?:\s+with\s+id)?|sales\s+order\s+with\s+id)"
+    rf"\s+{_ID_TOKEN}\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_id(pattern: re.Pattern[str], question: str) -> dict | None:
+    match = pattern.search(question)
+    if not match:
+        return None
+    return {"id": match.group(1)}
+
+
+def _handle_get_employee_by_id(question: str) -> dict | None:
+    """Extract ``{"id": raw}`` for an employee-by-id question."""
+    return _extract_id(_EMPLOYEE_BY_ID, question)
+
+
+def _handle_get_sales_order_by_id(question: str) -> dict | None:
+    """Extract ``{"id": raw}`` for a sales-order-by-id question."""
+    return _extract_id(_SALES_ORDER_BY_ID, question)
+
+
+# get-by-id wins over list_employees / list_sales_order.
+_TOOL_HANDLERS = (
+    ("get_employee_by_id", _handle_get_employee_by_id),
+    ("get_sales_order_by_id", _handle_get_sales_order_by_id),
 )
 
 
@@ -94,16 +113,18 @@ def _tool_args(block) -> dict:
     return dict(raw) if isinstance(raw, dict) else {}
 
 
-def _infer_get_by_id(question: str) -> tuple[str, dict] | None:
+def _infer_tool(question: str) -> tuple[str, dict] | None:
     """Return ``(tool_name, {"id": raw})`` for an entity-by-id question.
 
     Handlers: ``get_employee_by_id``, ``get_sales_order_by_id``.
-    List questions and greetings return None so the model still chooses those.
+    Each handler extracts the id argument from ``get <entity> <id>`` (and
+    ``<entity> with id <id>``). List questions and greetings return None so
+    the model still chooses ``list_employees`` and ``list_sales_order``.
     """
-    for tool_name, pattern in _GET_BY_ID_HANDLERS:
-        match = pattern.search(question)
-        if match:
-            return tool_name, {"id": match.group(1)}
+    for tool_name, handler in _TOOL_HANDLERS:
+        tool_args = handler(question)
+        if tool_args is not None:
+            return tool_name, tool_args
     return None
 
 
@@ -111,10 +132,10 @@ def _apply_get_by_id(question: str, choice: dict) -> dict:
     """Keep entity-by-id queries on the matching tool with the extracted id.
 
     A model that picks a list tool, omits ``id``, or answers in prose would
-    drop the record. The handler result wins for those questions. The id is
-    the raw token from the question; normalization happens in ``mcp_client``.
+    drop the record. ``_infer_tool`` wins for those questions. The id is the
+    raw token from the question; normalization happens in ``mcp_client``.
     """
-    inferred = _infer_get_by_id(question)
+    inferred = _infer_tool(question)
     if inferred is None:
         return choice
 

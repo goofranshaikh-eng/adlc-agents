@@ -65,3 +65,77 @@ def test_ask_llm_returns_text_when_model_skips_tools():
         choice = asyncio.run(ask_llm("hello"))
 
     assert choice == {"type": "direct_answer", "answer": "Hello."}
+
+
+@pytest.mark.parametrize(
+    ("question", "tool_name", "tool_args", "model_name", "model_args"),
+    [
+        (
+            "get employee emp-001",
+            "get_employee_by_id",
+            {"id": "emp-001"},
+            "list_employees",
+            {},
+        ),
+        (
+            "get employee emp001",
+            "get_employee_by_id",
+            {"id": "emp001"},
+            "list_employees",
+            {},
+        ),
+        (
+            "get employee Emp-001",
+            "get_employee_by_id",
+            {"id": "Emp-001"},
+            "get_employee_by_id",
+            {},
+        ),
+        (
+            "Give me employee with id emp-001",
+            "get_employee_by_id",
+            {"id": "emp-001"},
+            "list_employees",
+            {},
+        ),
+        (
+            "get sales order so-123",
+            "get_sales_order_by_id",
+            {"id": "so-123"},
+            "list_sales_order",
+            {},
+        ),
+        (
+            "get sales order so123",
+            "get_sales_order_by_id",
+            {"id": "so123"},
+            "list_sales_order",
+            {},
+        ),
+        (
+            "get sales order ord-001",
+            "get_sales_order_by_id",
+            {"id": "ord-001"},
+            None,
+            {},
+        ),
+    ],
+)
+def test_get_by_id_handlers_extract_id_when_model_drops_it(
+    question, tool_name, tool_args, model_name, model_args
+):
+    """Entity-by-id questions keep their tool and raw id if the model misses them."""
+    client = MagicMock()
+    if model_name is None:
+        content = [_text("I cannot look that up.")]
+    else:
+        content = [_tool_use(model_name, model_args)]
+    client.messages.create.return_value = MagicMock(content=content)
+    with patch("agent.llm_client._get_client", return_value=client):
+        choice = asyncio.run(ask_llm(question))
+
+    assert choice == {
+        "type": "tool_request",
+        "tool_name": tool_name,
+        "tool_args": tool_args,
+    }

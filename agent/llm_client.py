@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 
 from anthropic import Anthropic
 
@@ -45,6 +46,29 @@ _TOOLS = [
 ]
 _TOOL_NAMES = {tool["name"] for tool in _TOOLS}
 
+# Entity-by-id handlers. Checked before list routing so "get employee emp-001"
+# cannot collapse into list_employees and drop the id. The captured id is the
+# raw question text (emp-001, emp001, Emp-001, so-123, so123, ord-001);
+# mcp_client uppercases it before the FastMCP call.
+_GET_BY_ID_HANDLERS = (
+    (
+        "get_employee_by_id",
+        re.compile(
+            r"\b(?:get\s+employee(?:\s+with\s+id)?|employee\s+with\s+id)"
+            r"\s+([A-Za-z][\w-]*)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "get_sales_order_by_id",
+        re.compile(
+            r"\b(?:get\s+sales\s+order(?:\s+with\s+id)?|sales\s+order\s+with\s+id)"
+            r"\s+([A-Za-z][\w-]*)\b",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
 
 def _get_client():
     global _client
@@ -70,6 +94,42 @@ def _tool_args(block) -> dict:
     return dict(raw) if isinstance(raw, dict) else {}
 
 
+def _infer_get_by_id(question: str) -> tuple[str, dict] | None:
+    """Return ``(tool_name, {"id": raw})`` for an entity-by-id question.
+
+    Handlers: ``get_employee_by_id``, ``get_sales_order_by_id``.
+    List questions and greetings return None so the model still chooses those.
+    """
+    for tool_name, pattern in _GET_BY_ID_HANDLERS:
+        match = pattern.search(question)
+        if match:
+            return tool_name, {"id": match.group(1)}
+    return None
+
+
+def _apply_get_by_id(question: str, choice: dict) -> dict:
+    """Keep entity-by-id queries on the matching tool with the extracted id.
+
+    A model that picks a list tool, omits ``id``, or answers in prose would
+    drop the record. The handler result wins for those questions. The id is
+    the raw token from the question; normalization happens in ``mcp_client``.
+    """
+    inferred = _infer_get_by_id(question)
+    if inferred is None:
+        return choice
+
+    tool_name, tool_args = inferred
+    if choice.get("type") == "tool_request" and choice.get("tool_name") == tool_name:
+        merged = dict(choice.get("tool_args") or {})
+        merged["id"] = tool_args["id"]
+        return {
+            "type": "tool_request",
+            "tool_name": tool_name,
+            "tool_args": merged,
+        }
+    return {"type": "tool_request", "tool_name": tool_name, "tool_args": tool_args}
+
+
 def _choose_sync(client, question: str) -> dict:
     """Ask the model which of the four MCP tools matches the question."""
     response = client.messages.create(
@@ -83,16 +143,20 @@ def _choose_sync(client, question: str) -> dict:
             continue
         name = block.name
         if name not in _TOOL_NAMES:
-            return {"type": "direct_answer", "answer": f"Unknown tool {name}"}
-        return {
-            "type": "tool_request",
-            "tool_name": name,
-            "tool_args": _tool_args(block),
-        }
+            choice = {"type": "direct_answer", "answer": f"Unknown tool {name}"}
+        else:
+            choice = {
+                "type": "tool_request",
+                "tool_name": name,
+                "tool_args": _tool_args(block),
+            }
+        return _apply_get_by_id(question, choice)
     text = "".join(
         block.text for block in response.content if getattr(block, "type", None) == "text"
     ).strip()
-    return {"type": "direct_answer", "answer": text or "No answer."}
+    return _apply_get_by_id(
+        question, {"type": "direct_answer", "answer": text or "No answer."}
+    )
 
 
 async def ask_llm(question: str, tool_result: dict | None = None) -> dict:

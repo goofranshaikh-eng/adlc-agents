@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 
 from agent.health import check_health
+from agent.orchestrator import process_question
 
 app = FastAPI()
 
@@ -9,8 +10,8 @@ app = FastAPI()
 async def query(request: Request):
     body = await request.json()
     question = body.get("question", "")
-    # Stub: return placeholder until LLM integrated (Story 2)
-    return {"answer": "Placeholder response. LLM integration pending Story 2."}
+    result = await process_question(question)
+    return result
 
 
 @app.get("/health")

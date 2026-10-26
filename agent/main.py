@@ -83,14 +83,18 @@ async def run_background_job(agent_run_id: str, query: str) -> None:
 
 
 @app.post("/query", response_model=None)
-async def post_query(question: str) -> dict:
+async def post_query(request: Request) -> dict:
     """Existing blocking query endpoint (PER-20).
 
-    Unchanged by this story. Story 3 verifies backward compatibility.
-    Story 1 does not call process_question. response_model is disabled so this
-    placeholder does not fail FastAPI response validation.
+    Reads ``{"question": "..."}``, awaits ``process_question`` in this process,
+    and returns ``{"answer": "..."}`` or ``{"error": "..."}`` with HTTP 200.
+    response_model is disabled so the orchestrator dict is returned as-is.
     """
-    pass
+    body = await request.json()
+    question = body.get("question", "")
+    from agent.orchestrator import process_question
+
+    return await process_question(question)
 
 
 @app.get("/health")
